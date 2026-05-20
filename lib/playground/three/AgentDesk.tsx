@@ -1,13 +1,13 @@
 "use client";
 
-import { useRef } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useCallback, useRef } from "react";
+import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
 import type { Mesh, MeshStandardMaterial } from "three";
 import { ROLES, type RoleKey } from "@/lib/dashboard/constants";
 import { AgentCharacter, type AgentPose } from "./AgentCharacter";
 import { ToolBadge } from "./ToolBadge";
-import type { AgentLiveState } from "./useAgentState";
+import type { AgentLiveState, PlaygroundRole } from "./useAgentState";
 
 const DESK_W = 2.2;
 const DESK_D = 1.1;
@@ -29,11 +29,13 @@ export function AgentDesk({
   anchor,
   live,
   highlighted,
+  onHoverChange,
 }: {
   role: Exclude<RoleKey, "user">;
   anchor: { x: number; z: number; rotY: number };
   live: AgentLiveState | null;
   highlighted: boolean;
+  onHoverChange?: (role: PlaygroundRole, hovered: boolean) => void;
 }) {
   const screen = useRef<Mesh>(null);
   const desk = useRef<Mesh>(null);
@@ -82,8 +84,28 @@ export function AgentDesk({
   // Desk faces rotY (monitor away). Agent stands on the opposite side.
   const agentBackZ = 0.85; // how far behind the desk center
 
+  const handlePointerOver = useCallback(
+    (e: ThreeEvent<PointerEvent>) => {
+      e.stopPropagation();
+      onHoverChange?.(role as PlaygroundRole, true);
+    },
+    [onHoverChange, role],
+  );
+  const handlePointerOut = useCallback(
+    (e: ThreeEvent<PointerEvent>) => {
+      e.stopPropagation();
+      onHoverChange?.(role as PlaygroundRole, false);
+    },
+    [onHoverChange, role],
+  );
+
   return (
-    <group position={[anchor.x, 0, anchor.z]} rotation={[0, anchor.rotY, 0]}>
+    <group
+      position={[anchor.x, 0, anchor.z]}
+      rotation={[0, anchor.rotY, 0]}
+      onPointerOver={handlePointerOver}
+      onPointerOut={handlePointerOut}
+    >
       {/* Desk */}
       <mesh ref={desk} position={[0, DESK_H / 2, 0]} castShadow receiveShadow>
         <boxGeometry args={[DESK_W, DESK_H, DESK_D]} />

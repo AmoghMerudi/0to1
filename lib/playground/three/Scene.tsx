@@ -2,20 +2,27 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Html } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import { PCFShadowMap } from "three";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { RoleKey } from "@/lib/dashboard/constants";
 import { AgentInfoDrawer } from "@/lib/playground/AgentInfoDrawer";
+import { HoverTooltip, PlaygroundHud } from "@/lib/playground/PlaygroundHud";
 import { Office } from "./Office";
 import { Agents } from "./Agents";
 import { Player } from "./Player";
 import { TicketBoard } from "./TicketBoard";
 import { RoomWorkBoards } from "./RoomWorkBoard";
 import { MessageProjectiles } from "./MessageProjectile";
-import { PLAYER_SPAWN, CAMERA_POSITION, CAMERA_ZOOM } from "./layout";
+import { PLAYER_SPAWN, CAMERA_POSITION, CAMERA_ZOOM, DESKS } from "./layout";
 import { useAgentLiveStates, type PlaygroundRole } from "./useAgentState";
 import { useTicketMentions } from "./useTicketMentions";
+
+const SCENE_BACKGROUND =
+  "radial-gradient(ellipse 90% 70% at 50% 55%, #F2EDE2 0%, #EAE2D0 60%, #DDD3BB 100%)";
+const SCENE_VIGNETTE =
+  "linear-gradient(180deg, rgba(20,15,5,0.06) 0%, transparent 18%, transparent 82%, rgba(20,15,5,0.08) 100%)";
 
 /**
  * Pins the default camera to a fixed isometric view of the office.
@@ -24,11 +31,7 @@ import { useTicketMentions } from "./useTicketMentions";
  */
 /* eslint-disable react-hooks/immutability -- R3F camera rig pattern requires
    mutating the camera retrieved from useThree; this is the documented R3F idiom. */
-function CameraRig({
-  onDebug,
-}: {
-  onDebug?: (s: string) => void;
-}) {
+function CameraRig() {
   const camera = useThree((s) => s.camera);
   const size = useThree((s) => s.size);
 
@@ -39,10 +42,7 @@ function CameraRig({
     }
     camera.lookAt(0, 0, 0);
     camera.updateProjectionMatrix();
-    onDebug?.(
-      `vp ${size.width}×${size.height} · cam (${CAMERA_POSITION.join(",")}) zoom ${CAMERA_ZOOM} · type ${camera.type}`,
-    );
-  }, [camera, size.width, size.height, onDebug]);
+  }, [camera, size.width, size.height]);
 
   useFrame(() => {
     camera.position.set(...CAMERA_POSITION);
@@ -66,12 +66,22 @@ export function PlaygroundScene({ projectId }: { projectId: string }) {
 
   const playerPosRef = useRef({ x: PLAYER_SPAWN.x, z: PLAYER_SPAWN.z });
   const [closestRole, setClosestRole] = useState<PlaygroundRole | null>(null);
+  const [hoveredRole, setHoveredRole] = useState<PlaygroundRole | null>(null);
   const [talkingTo, setTalkingTo] = useState<RoleKey | null>(null);
-  const [debug, setDebug] = useState<string>("");
 
   const handleInteract = useCallback((role: PlaygroundRole) => {
     setTalkingTo((prev) => (prev === role ? null : role));
   }, []);
+
+  const handleHoverChange = useCallback(
+    (role: PlaygroundRole, hovered: boolean) => {
+      setHoveredRole((prev) => {
+        if (hovered) return role;
+        return prev === role ? null : prev;
+      });
+    },
+    [],
+  );
 
   // ESC closes the drawer (global listener since the canvas may have focus).
   useEffect(() => {
@@ -82,15 +92,30 @@ export function PlaygroundScene({ projectId }: { projectId: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  const tooltipState = hoveredRole && !talkingTo ? states?.[hoveredRole] ?? null : null;
+  const tooltipAnchor = hoveredRole ? DESKS[hoveredRole] : null;
+
   return (
     <div
       style={{
         position: "absolute",
         inset: 0,
-        background: "#0A0A0A",
+        background: SCENE_BACKGROUND,
         overflow: "hidden",
       }}
     >
+      {/* Top/bottom darkening vignette over the warm floor — keeps HUD legible. */}
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          inset: 0,
+          pointerEvents: "none",
+          background: SCENE_VIGNETTE,
+          zIndex: 1,
+        }}
+      />
+
       <Canvas
         shadows={{ type: PCFShadowMap }}
         orthographic
@@ -103,9 +128,7 @@ export function PlaygroundScene({ projectId }: { projectId: string }) {
         dpr={[1, 1.75]}
         gl={{ antialias: true, powerPreference: "high-performance" }}
       >
-        <color attach="background" args={["#0A0A0A"]} />
-
-        <CameraRig onDebug={setDebug} />
+        <CameraRig />
 
         {/* Lights */}
         <ambientLight intensity={0.7} />
@@ -128,7 +151,11 @@ export function PlaygroundScene({ projectId }: { projectId: string }) {
         <Office />
         <TicketBoard projectId={projectConvexId} />
         <RoomWorkBoards states={states} />
-        <Agents states={states} highlightedRole={closestRole} />
+        <Agents
+          states={states}
+          highlightedRole={closestRole}
+          onHoverChange={handleHoverChange}
+        />
         <Player
           positionRef={playerPosRef}
           onClosestRoleChange={setClosestRole}
@@ -137,10 +164,22 @@ export function PlaygroundScene({ projectId }: { projectId: string }) {
         />
         <MessageProjectiles events={mentions} playerPosRef={playerPosRef} />
 
+        {tooltipState && tooltipAnchor && (
+          <Html
+            position={[tooltipAnchor.x, 3.6, tooltipAnchor.z]}
+            center
+            distanceFactor={undefined}
+            zIndexRange={[100, 0]}
+            style={{ pointerEvents: "none" }}
+          >
+            <HoverTooltip role={tooltipState.role} live={tooltipState} />
+          </Html>
+        )}
+
         <EffectComposer>
           <Bloom
-            intensity={0.55}
-            luminanceThreshold={0.6}
+            intensity={0.25}
+            luminanceThreshold={0.85}
             luminanceSmoothing={0.2}
             mipmapBlur
           />
@@ -148,90 +187,22 @@ export function PlaygroundScene({ projectId }: { projectId: string }) {
       </Canvas>
 
       {/* HUD overlay */}
-      <Hud talking={!!talkingTo} promptRole={closestRole} />
-
-      {/* Debug strip */}
-      <div
-        className="font-mono"
-        style={{
-          position: "absolute",
-          top: 14,
-          right: 14,
-          padding: "4px 8px",
-          background: "#0F0E0Caa",
-          border: "1px solid #3D3B36",
-          borderRadius: 3,
-          color: "#8E8B82",
-          fontSize: 9,
-          letterSpacing: "0.06em",
-          pointerEvents: "none",
-          maxWidth: 360,
-        }}
-      >
-        {debug || "…"}
-      </div>
+      <PlaygroundHud
+        projectId={projectConvexId}
+        states={states}
+        promptRole={talkingTo ?? closestRole}
+        talking={!!talkingTo}
+      />
 
       {/* Drawer */}
       {talkingTo && talkingTo !== "user" && (
-        <AgentInfoDrawer role={talkingTo} onClose={() => setTalkingTo(null)} />
+        <AgentInfoDrawer
+          role={talkingTo}
+          onClose={() => setTalkingTo(null)}
+          projectId={projectConvexId}
+          live={states?.[talkingTo as PlaygroundRole] ?? null}
+        />
       )}
     </div>
-  );
-}
-
-function Hud({
-  talking,
-  promptRole,
-}: {
-  talking: boolean;
-  promptRole: PlaygroundRole | null;
-}) {
-  return (
-    <>
-      {/* Top-left badge */}
-      <div
-        className="font-mono"
-        style={{
-          position: "absolute",
-          top: 14,
-          left: 14,
-          padding: "6px 10px",
-          background: "#0F0E0Caa",
-          border: "1px solid #3D3B36",
-          borderRadius: 3,
-          color: "#D9C4A8",
-          fontSize: 10,
-          letterSpacing: "0.18em",
-          pointerEvents: "none",
-        }}
-      >
-        ◆ STARTUP HQ ◆ LIVE
-      </div>
-
-      {/* Bottom HUD */}
-      <div
-        className="font-mono"
-        style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          bottom: 14,
-          display: "flex",
-          justifyContent: "center",
-          gap: 18,
-          fontSize: 10,
-          letterSpacing: "0.16em",
-          color: "#F4F1E8",
-          textShadow: "0 1px 2px rgba(0,0,0,0.9)",
-          pointerEvents: "none",
-        }}
-      >
-        <span>WASD / ARROWS · MOVE</span>
-        <span style={{ color: promptRole && !talking ? "#F2C744" : "#5E5C56" }}>
-          E · {talking ? "CLOSE" : promptRole ? `TALK TO ${promptRole.toUpperCase()}` : "TALK"}
-        </span>
-        <span>ESC · CLOSE</span>
-      </div>
-    </>
   );
 }

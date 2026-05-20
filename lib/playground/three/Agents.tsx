@@ -7,9 +7,11 @@ import type { AgentLiveState, PlaygroundRole } from "./useAgentState";
 export function Agents({
   states,
   highlightedRole,
+  onHoverChange,
 }: {
   states: Record<PlaygroundRole, AgentLiveState> | null;
   highlightedRole: PlaygroundRole | null;
+  onHoverChange?: (role: PlaygroundRole, hovered: boolean) => void;
 }) {
   return (
     <group>
@@ -20,6 +22,7 @@ export function Agents({
           anchor={DESKS[role]}
           live={states?.[role] ?? null}
           highlighted={highlightedRole === role}
+          onHoverChange={onHoverChange}
         />
       ))}
     </group>

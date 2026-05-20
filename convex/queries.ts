@@ -277,3 +277,56 @@ export const getRecentMentionsByProject = query({
       }));
   },
 });
+
+export const getRecentMentionsByAgent = query({
+  args: {
+    projectId: v.id("projects"),
+    agentId: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = Math.max(1, Math.min(args.limit ?? 5, 50));
+    const comments = await ctx.db
+      .query("comments")
+      .withIndex("by_project_ticket", (q) => q.eq("projectId", args.projectId))
+      .collect();
+
+    return comments
+      .filter((c) => (c.mentions ?? []).includes(args.agentId))
+      .sort((a, b) => b._creationTime - a._creationTime)
+      .slice(0, limit)
+      .map((c) => ({
+        _id: c._id,
+        ticketId: c.ticketId,
+        author: c.author,
+        content: c.content,
+        mentions: c.mentions ?? [],
+        createdAt: c._creationTime,
+      }));
+  },
+});
+
+export const getAgentRecentSteps = query({
+  args: {
+    agentId: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = Math.max(1, Math.min(args.limit ?? 7, 50));
+    const steps = await ctx.db
+      .query("agentSteps")
+      .withIndex("by_agent_recent", (q) => q.eq("agentId", args.agentId))
+      .order("desc")
+      .take(limit);
+
+    return steps.map((s) => ({
+      _id: s._id,
+      ticketId: s.ticketId,
+      toolName: s.toolName,
+      status: s.status,
+      startedAt: s.startedAt,
+      completedAt: s.completedAt,
+      durationMs: s.durationMs,
+    }));
+  },
+});
